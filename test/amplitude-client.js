@@ -128,31 +128,31 @@ describe('AmplitudeClient', function() {
     it('fails on invalid apiKeys', function() {
       amplitude.init(null);
       assert.equal(amplitude.options.apiKey, undefined);
-      assert.equal(amplitude.options.deviceId, undefined);
+      assert.equal(amplitude.getDeviceId(), undefined);
 
       amplitude.init('');
       assert.equal(amplitude.options.apiKey, undefined);
-      assert.equal(amplitude.options.deviceId, undefined);
+      assert.equal(amplitude.getDeviceId(), undefined);
 
       amplitude.init(apiKey);
       assert.equal(amplitude.options.apiKey, apiKey);
-      assert.lengthOf(amplitude.options.deviceId, 22);
+      assert.lengthOf(amplitude.getDeviceId(), 25);
     });
 
     it('should accept userId', function() {
       amplitude.init(apiKey, userId);
-      assert.equal(amplitude.options.userId, userId);
+      assert.equal(amplitude.getUserId(), userId);
     });
 
     it('should accept numerical userIds', function() {
       const userId = 5;
       amplitude.init(apiKey, 5);
-      assert.equal(amplitude.options.userId, '5');
+      assert.equal(amplitude.getUserId(), '5');
     });
 
     it('should generate a random deviceId', function() {
       amplitude.init(apiKey, userId);
-      assert.lengthOf(amplitude.options.deviceId, 22)
+      assert.lengthOf(amplitude.getDeviceId(), 25)
     });
 
     it('should validate config values', function() {
@@ -198,7 +198,7 @@ describe('AmplitudeClient', function() {
       const stored = storage.load();
       assert.property(stored, 'deviceId');
       assert.propertyVal(stored, 'userId', userId);
-      assert.lengthOf(stored.deviceId, 22);
+      assert.lengthOf(stored.deviceId, 25);
     });
 
     it('should set language', function() {
@@ -229,7 +229,7 @@ describe('AmplitudeClient', function() {
       var deviceId = 'aa_bb_cc_dd';
       sinon.stub(amplitude, '_getUrlParams').returns('?utm_source=amplitude&utm_medium=email&gclid=12345&amp_device_id=aa_bb_cc_dd');
       amplitude.init(apiKey, userId, {deviceIdFromUrlParam: true});
-      assert.equal(amplitude.options.deviceId, deviceId);
+      assert.equal(amplitude.getDeviceId(), deviceId);
 
       const storage = new MetadataStorage({storageKey: cookieName});
       const cookieData = storage.load();
@@ -242,7 +242,7 @@ describe('AmplitudeClient', function() {
       var deviceId = 'aa_bb_cc_dd';
       sinon.stub(amplitude, '_getUrlParams').returns('?utm_source=amplitude&utm_medium=email&gclid=12345&amp_device_id=aa_bb_cc_dd');
       amplitude.init(apiKey, userId, {deviceIdFromUrlParam: false});
-      assert.notEqual(amplitude.options.deviceId, deviceId);
+      assert.notEqual(amplitude.getDeviceId(), deviceId);
 
       const storage = new MetadataStorage({storageKey: cookieName});
       const cookieData = storage.load();
@@ -254,13 +254,13 @@ describe('AmplitudeClient', function() {
     it ('should create device id if not set in the url', function(){
         sinon.stub(amplitude, '_getUrlParams').returns('?utm_source=amplitude&utm_medium=email&gclid=12345');
         amplitude.init(apiKey, userId, {deviceIdFromUrlParam: true});
-        assert.notEqual(amplitude.options.deviceId, null);
-        assert.lengthOf(amplitude.options.deviceId, 22);
+        assert.notEqual(amplitude.getDeviceId(), null);
+        assert.lengthOf(amplitude.getDeviceId(), 25);
 
         const storage = new MetadataStorage({storageKey: cookieName});
         const cookieData = storage.load();
         assert.notEqual(cookieData.deviceId, null);
-        assert.lengthOf(cookieData.deviceId, 22);
+        assert.lengthOf(cookieData.deviceId, 25);
 
         amplitude._getUrlParams.restore();
     });
@@ -269,7 +269,7 @@ describe('AmplitudeClient', function() {
       var deviceId = 'dd_cc_bb_aa';
       sinon.stub(amplitude, '_getUrlParams').returns('?utm_source=amplitude&utm_medium=email&gclid=12345&amp_device_id=aa_bb_cc_dd');
       amplitude.init(apiKey, userId, {deviceId: deviceId, deviceIdFromUrlParam: true});
-      assert.equal(amplitude.options.deviceId, deviceId);
+      assert.equal(amplitude.getDeviceId(), deviceId);
 
       const storage = new MetadataStorage({storageKey: cookieName});
       const cookieData = storage.load();
@@ -289,7 +289,7 @@ describe('AmplitudeClient', function() {
       cookie.set(amplitude.options.cookieName + '_' + apiKey, cookieData);
 
       amplitude.init(apiKey);
-      assert.equal(amplitude.options.deviceId, 'current_device_id');
+      assert.equal(amplitude.getDeviceId(), 'current_device_id');
     });
 
     it('should upgrade the new cookie to the old cookie if forceUpgrade is on', function(){
@@ -345,7 +345,7 @@ describe('AmplitudeClient', function() {
       cookie.set(oldCookieName, cookieData);
 
       amplitude.init(apiKey, null);
-      assert.equal(amplitude.options.deviceId, 'old_device_id');
+      assert.equal(amplitude.getDeviceId(), 'old_device_id');
     });
 
     it('should favor the device id from the new cookie even if the old cookie exists', function(){
@@ -364,7 +364,7 @@ describe('AmplitudeClient', function() {
       cookie.setRaw(cookieName, `new_device_id.${Base64.encode(userId)}..1000.1000.0.0.0`);
 
       amplitude.init(apiKey, null);
-      assert.equal(amplitude.options.deviceId, 'new_device_id');
+      assert.equal(amplitude.getDeviceId(), 'new_device_id');
     });
 
     it('should save cookie data to localStorage if cookies are not enabled', function() {
@@ -819,7 +819,7 @@ it ('should load saved events from localStorage new keys and send events', funct
       assert.lengthOf(amplitude._q, 2);
       amplitude.runQueuedFunctions();
 
-      assert.equal(amplitude.options.userId, userId);
+      assert.equal(amplitude.getUserId(), userId);
       assert.equal(amplitude._unsentCount(), 1);
       assert.lengthOf(server.requests, 1);
       var events = JSON.parse(queryString.parse(server.requests[0].requestBody).e);
@@ -969,8 +969,8 @@ describe('setVersionName', function() {
       var deviceId = 'oldDeviceId';
       amplitude.init(apiKey, null, {'deviceId': deviceId});
       amplitude.regenerateDeviceId();
-      assert.notEqual(amplitude.options.deviceId, deviceId);
-      assert.lengthOf(amplitude.options.deviceId, 22);
+      assert.notEqual(amplitude.getDeviceId(), deviceId);
+      assert.lengthOf(amplitude.getDeviceId(), 25);
     });
   });
 
@@ -987,21 +987,21 @@ describe('setVersionName', function() {
     it('should change device id', function() {
       amplitude.init(apiKey, null, {'deviceId': 'fakeDeviceId'});
       amplitude.setDeviceId('deviceId');
-      assert.equal(amplitude.options.deviceId, 'deviceId');
+      assert.equal(amplitude.getDeviceId(), 'deviceId');
     });
 
     it('should not change device id if empty', function() {
       amplitude.init(apiKey, null, {'deviceId': 'deviceId'});
       amplitude.setDeviceId('');
-      assert.notEqual(amplitude.options.deviceId, '');
-      assert.equal(amplitude.options.deviceId, 'deviceId');
+      assert.notEqual(amplitude.getDeviceId(), '');
+      assert.equal(amplitude.getDeviceId(), 'deviceId');
     });
 
     it('should not change device id if null', function() {
       amplitude.init(apiKey, null, {'deviceId': 'deviceId'});
       amplitude.setDeviceId(null);
-      assert.notEqual(amplitude.options.deviceId, null);
-      assert.equal(amplitude.options.deviceId, 'deviceId');
+      assert.notEqual(amplitude.getDeviceId(), null);
+      assert.equal(amplitude.getDeviceId(), 'deviceId');
     });
 
     it('should store device id in cookie', function() {

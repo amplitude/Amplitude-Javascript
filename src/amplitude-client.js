@@ -1,23 +1,24 @@
 // Core of SDK code
+import { identityManager, DefaultIdentity as Identity } from '@amplitude/identity'; // Identity (user + device) library
+import UAParser from '@amplitude/ua-parser-js'; // Identifying device and browser info (maybe move to backend?)
 import { isBrowserEnv, prototypeJsFix } from '@amplitude/utils';
+
+import baseCookie from './base-cookie';
+import md5 from 'blueimp-md5';
 import Constants from './constants';
 import cookieStorage from './cookiestorage';
-import MetadataStorage from '../src/metadata-storage';
-import getUtmData from './utm'; // Urchin Tracking Module
+import getHost from './get-host';
 import Identify from './identify';
 import localStorage from './localstorage';  // jshint ignore:line
-import md5 from 'blueimp-md5';
-import Request from './xhr';
+import MetadataStorage from './metadata-storage';
+import DEFAULT_OPTIONS from './options';
 import Revenue from './revenue';
 import type from './type';
-import UAParser from '@amplitude/ua-parser-js'; // Identifying device and browser info (maybe move to backend?)
-import utils from './utils';
 import UUID from './uuid';
-import base64Id from './base64Id';
+import utils from './utils';
+import getUtmData from './utm'; // Urchin Tracking Module
+import Request from './xhr';
 import { version } from '../package.json';
-import DEFAULT_OPTIONS from './options';
-import getHost from './get-host';
-import baseCookie from './base-cookie';
 
 let AsyncStorage;
 let Platform;
@@ -86,7 +87,7 @@ AmplitudeClient.prototype.init = function init(apiKey, opt_userId, opt_config, o
 
   try {
     _parseConfig(this.options, opt_config);
-    
+
     if (isBrowserEnv() && window.Prototype !== undefined && Array.prototype.toJSON) {
       prototypeJsFix();
       utils.log.warn('Prototype.js injected Array.prototype.toJSON. Deleting Array.prototype.toJSON to prevent double-stringify');
@@ -152,13 +153,17 @@ AmplitudeClient.prototype.init = function init(apiKey, opt_userId, opt_config, o
     this._pendingReadStorage = true;
 
     const initFromStorage = (storedDeviceId) => {
-      this.options.deviceId = this._getInitialDeviceId(
+      const initialDeviceId = this._getInitialDeviceId(
          opt_config && opt_config.deviceId, storedDeviceId
       );
-      this.options.userId =
+
+      const initialUserId =
         (type(opt_userId) === 'string' && !utils.isEmptyString(opt_userId) && opt_userId) ||
         (type(opt_userId) === 'number' && opt_userId.toString()) ||
           this.options.userId || null;
+
+      // Reset (or set) the identity of this instance to this new identity
+      this.resetIdentity(initialDeviceId, initialUserId);
 
       var now = new Date().getTime();
       if (!this._sessionId || !this._lastEventTime || now - this._lastEventTime > this.options.sessionTimeout) {
@@ -307,7 +312,7 @@ AmplitudeClient.prototype._getInitialDeviceId = function (configDeviceId, stored
     return storedDeviceId;
   }
 
-  return base64Id();
+  return Identity.generateDefaultId();
 };
 
 // validate properties for unsent events
@@ -513,6 +518,33 @@ AmplitudeClient.prototype.onInit = function (callback) {
 };
 
 /**
+ * Returns the device ID attached to this amplitude client.
+ * @public
+ * @return {string} device ID of the current client.
+ */
+AmplitudeClient.prototype.getDeviceId = function getDeviceId() {
+  if (this._shouldDeferCall()) {
+    return this._q.push(['getDeviceId'].concat(Array.prototype.slice.call(arguments, 0)));
+  }
+
+  return identityManager.getInstance(this._instanceName).getDeviceId();
+};
+
+/**
+ * Returns the user ID attached to this amplitude client.
+ * @public
+ * @return {string | null} user ID of the current client.
+ */
+AmplitudeClient.prototype.getUserId = function getUserId() {
+  if (this._shouldDeferCall()) {
+    return this._q.push(['getUserId'].concat(Array.prototype.slice.call(arguments, 0)));
+  }
+
+  return identityManager.getInstance(this._instanceName).getUserId();
+};
+
+
+/**
  * Returns the id of the current session.
  * @public
  * @return {number} Id of the current session.
@@ -637,12 +669,14 @@ const _upgradeCookieData = (scope) => {
 };
 
 var _loadCookieDataProps = function _loadCookieDataProps(scope, cookieData) {
-  if (cookieData.deviceId) {
-    scope.options.deviceId = cookieData.deviceId;
+  if (cookieData.deviceId && cookieData.deviceId !== scope.getDeviceId()) {
+    _resetIdentity(scope, cookieData.deviceId, scope.getUserId());
   }
-  if (cookieData.userId) {
-    scope.options.userId = cookieData.userId;
+
+  if (cookieData.userId && cookieData.deviceId !== scope.getUserId()) {
+    _setUserId(scope, cookieData.userId);
   }
+
   if (cookieData.optOut !== null && cookieData.optOut !== undefined) {
     // Do not clobber config opt out value if cookieData has optOut as false
     if (cookieData.optOut !== false) {
@@ -666,14 +700,38 @@ var _loadCookieDataProps = function _loadCookieDataProps(scope, cookieData) {
   }
 };
 
+var _setUserId = function _setUserId(scope, userId) {
+  const safeUserId = (userId !== undefined && userId !== null && ('' + userId)) || null;
+  identityManager.getInstance(scope._instanceName).setUserId(safeUserId);
+};
+
+var _resetIdentity = function _resetIdentity(scope, deviceId, userId) {
+  let safeDeviceId = deviceId;
+
+  if (!utils.validateInput(deviceId, 'deviceId', 'string') || utils.isEmptyString(deviceId)) {
+    // pass in undefined and let the base identity generate the device ID
+    safeDeviceId = undefined;
+  }
+
+  const newIdentity = new Identity();
+  newIdentity.initializeDeviceId(safeDeviceId);
+  if (userId) {
+    newIdentity.setUserId(userId);
+  }
+
+  // Reset (or set) the identity of this instance to this new identity
+  identityManager.resetInstance(scope._instanceName, newIdentity);
+  // Save the new info to metadata
+};
+
 /**
  * Saves deviceId, userId, event meta data to amplitude cookie
  * @private
  */
 var _saveCookieData = function _saveCookieData(scope) {
   const cookieData = {
-    deviceId: scope.options.deviceId,
-    userId: scope.options.userId,
+    deviceId: scope.getDeviceId(),
+    userId: scope.getUserId(),
     optOut: scope.options.optOut,
     sessionId: scope._sessionId,
     lastEventTime: scope._lastEventTime,
@@ -878,7 +936,7 @@ AmplitudeClient.prototype.setUserId = function setUserId(userId) {
   }
 
   try {
-    this.options.userId = (userId !== undefined && userId !== null && ('' + userId)) || null;
+    _setUserId(this, userId);
     _saveCookieData(this);
   } catch (e) {
     utils.log.error(e);
@@ -968,7 +1026,7 @@ AmplitudeClient.prototype.regenerateDeviceId = function regenerateDeviceId() {
     return this._q.push(['regenerateDeviceId'].concat(Array.prototype.slice.call(arguments, 0)));
   }
 
-  this.setDeviceId(base64Id());
+  this.setDeviceId(Identity.generateDefaultId());
 };
 
 /**
@@ -976,6 +1034,7 @@ AmplitudeClient.prototype.regenerateDeviceId = function regenerateDeviceId() {
   * (like if you have your own system for managing deviceIds). Make sure the deviceId you set is sufficiently unique
   * (we recommend something like a UUID - see src/uuid.js for an example of how to generate) to prevent conflicts with other devices in our system.
   * @public
+  * @deprecated
   * @param {string} deviceId - custom deviceId for current user.
   * @example amplitudeClient.setDeviceId('45f0954f-eb79-4463-ac8a-233a6f45a8f0');
   */
@@ -990,12 +1049,21 @@ AmplitudeClient.prototype.setDeviceId = function setDeviceId(deviceId) {
 
   try {
     if (!utils.isEmptyString(deviceId)) {
-      this.options.deviceId = ('' + deviceId);
-      _saveCookieData(this);
+      this.resetIdentity(deviceId, this.getUserId());
     }
   } catch (e) {
     utils.log.error(e);
   }
+};
+
+AmplitudeClient.prototype.resetIdentity = function resetIdentity(deviceId, userId) {
+  if (this._shouldDeferCall()) {
+    return this._q.push(['resetIdentity'].concat(Array.prototype.slice.call(arguments, 0)));
+  }
+
+  _resetIdentity(this, deviceId, userId);
+  // Save the new info to metadata
+  _saveCookieData(this);
 };
 
 /**
@@ -1237,8 +1305,8 @@ AmplitudeClient.prototype._logEvent = function _logEvent(eventType, eventPropert
     groups = groups || {};
     groupProperties = groupProperties || {};
     var event = {
-      device_id: this.options.deviceId,
-      user_id: this.options.userId,
+      device_id: this.getDeviceId(),
+      user_id: this.getUserId(),
       timestamp: eventTime,
       event_id: eventId,
       session_id: this._sessionId || -1,
